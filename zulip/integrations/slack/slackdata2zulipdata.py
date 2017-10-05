@@ -6,17 +6,26 @@ import sys
 import argparse
 import shutil
 import subprocess
-import zipfile
+
+from typing import Any, Dict, List
+# stubs
+user_profile_stub = Dict[str, Any]
+added_users_stub = Dict[str, int]
 
 
 # Transported from https://github.com/zulip/zulip/blob/master/zerver/lib/export.py
-def rm_tree(path):
-    # type: (str) -> None
+def rm_tree(path: str) -> None:
     if os.path.exists(path):
         shutil.rmtree(path)
 
-def users2zerver_userprofile(slack_dir, realm_id, timestamp, domain_name):
-    # type: () -> None
+def users2zerver_userprofile(slack_dir: str, realm_id: int, timestamp: Any,
+                             domain_name: str) -> (List[user_profile_stub], added_users_stub):
+    """
+    Returns:
+    1. zerver_userprofile, which is a list of user profile
+    2. added_users, which is a dictionary to map from slack user id to zulip
+       user id
+    """
     print('######### IMPORTING USERS STARTED #########\n')
     users = json.load(open(slack_dir + '/users.json'))
     zerver_userprofile = []
@@ -201,33 +210,56 @@ def channels2zerver_stream(slack_dir, realm_id, added_users):
 
 def channelmessage2zerver_message(slack_dir, channel, added_users, added_channels):
     json_names = os.listdir(slack_dir + '/' + channel)
+    users = json.load(open(slack_dir + '/users.json'))
     zerver_message = []
     msg_id_count = 1
+
+    # Sanitize the message text
+    def sanitize(string):
+        save_string = string
+        string = string.split(' ')
+        string[0] = string[0].replace('<@', ' ')
+        string[0] = string[0].replace('>', ' ')
+        string[0] = string[0].replace('|', ' ')
+        length = len(string[0].split(' '))
+        if length > 1:
+            short_name = string[0].split(' ')[2]
+            string[0] = string[0].split(' ')[1]
+        for user in users:
+            if(user['id'] == string[0] and user['name'] == short_name and length == 4) or
+              (user['id'] == string[0] and length == 3):
+                string[0] = user.get('real_name', user['name'])
+                string[0] = "@**" + string[0] + "** "
+                string = " ".join(string)
+                return string
+        return save_string
+
     for json_name in json_names:
         msgs = json.load(open(slack_dir + '/%s/%s' % (channel, json_name)))
         for msg in msgs:
             text = msg['text']
-            try:
-                user = msg.get('user', msg['file']['user'])
-            except KeyError:
-                # black magic, explain this later TOODOO
-                user = msg['user']
-            zulip_message = dict(
-                sending_client=1,
-                rendered_content_version=1,  # This is Zulip-specific
-                has_image=msg['has_image'],
-                subject=channel,  # This is Zulip-specific
-                pub_date=msg['ts'],
-                id=msg_id_count,
-                has_attachment=False,  # attachment will be posted in the subsequent message; this is how Slack does it, less like email
-                edit_history=None,
-                sender=added_users[user],  # map slack id to zulip id
-                content=text,  # TODO sanitize slack text, which contains <@msg['user']|short_name>
-                rendered_content=text,  # slack doesn't cache this
-                recipient=added_channels[channel],
-                last_edit_time=None,
-                has_link=msg['has_link'])
-            zerver_message.append(zulip_message)
+            if "has joined the channel" not in text:
+                try:
+                    user = msg.get('user', msg['file']['user'])
+                except KeyError:
+                    # black magic, explain this later TOODOO
+                    user = msg['user']
+                zulip_message = dict(
+                    sending_client=1,
+                    rendered_content_version=1,  # This is Zulip-specific
+                    has_image=msg.get('has_image', False),
+                    subject=channel,  # This is Zulip-specific
+                    pub_date=msg['ts'],
+                    id=msg_id_count,
+                    has_attachment=False,  # attachment will be posted in the subsequent message; this is how Slack does it, less like email
+                    edit_history=None,
+                    sender=added_users[user],  # map slack id to zulip id
+                    content=sanitize(text),
+                    rendered_content=text,  # slack doesn't cache this
+                    recipient=added_channels[channel],
+                    last_edit_time=None,
+                    has_link=msg['has_link'])
+                zerver_message.append(zulip_message)
     return zerver_message
 
 def main(slack_zip_file):
