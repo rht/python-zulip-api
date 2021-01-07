@@ -1,1 +1,1 @@
-dropbox
+dropbox==10.10.0
