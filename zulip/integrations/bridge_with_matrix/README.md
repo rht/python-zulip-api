@@ -37,7 +37,7 @@ details mentioned below. For example:
 ### 2. Matrix endpoint
 1. Create a user on [matrix.org](https://matrix.org/), preferably with
    a formal name like to `zulip-bot`.
-2. In the `matrix` section of the configuration file, enter the user's username
+2. In the `matrix` section of the configuration file, enter the user's MXID
    and password.
 3. Also enter the `host` and `room_id` into the same section.
 
